@@ -1,0 +1,7 @@
+# ignore targets of Makefile
+build/convert_docx
+build/reader
+build/ingest_txt
+build/reader.o
+build/words.db
+build/ingest_xml
