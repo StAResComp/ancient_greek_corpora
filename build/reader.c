@@ -3,7 +3,7 @@
 #include <libxml/xmlreader.h>
 #include <sqlite3.h>
 
-#define INSERT "INSERT OR IGNORE INTO words (form, lemma, postag) VALUES (?, ?, ?);"
+#define INSERT "INSERT OR IGNORE INTO lemmata (form, lemma, postag) VALUES (?, ?, ?);"
 
 #define LINE_LEN 512
 
@@ -54,7 +54,7 @@ step_error:
 int node(xmlTextReaderPtr reader, sqlite3_stmt *stmt) /*{{{*/
 {
    const xmlChar *elname, *attname, *value;
-   int i = 0, j, p, a = 0, rc = WORD_FATAL_ERROR;
+   int i = 0, p, a = 0, rc = WORD_FATAL_ERROR;
    
    // get name of node
    elname = xmlTextReaderConstName(reader);
@@ -68,8 +68,7 @@ int node(xmlTextReaderPtr reader, sqlite3_stmt *stmt) /*{{{*/
      }
    
    // loop over attributes
-   j = xmlTextReaderMoveToAttributeNo(reader, i);
-   while (1 == j) 
+   while (1 == xmlTextReaderMoveToAttributeNo(reader, i ++)) 
      {
         // get name
         attname = xmlTextReaderConstName(reader);
@@ -88,26 +87,47 @@ int node(xmlTextReaderPtr reader, sqlite3_stmt *stmt) /*{{{*/
           {
              p = POS_PARAM;
           }
-
-        // matched attribute, so bind to statement
-        if (0 != p) 
+        else 
           {
-             // get value
-             value = xmlTextReaderConstValue(reader);
-             
-             // bind param
-             if (SQLITE_OK != sqlite3_bind_text(stmt, p, (char *) value, -1, SQLITE_TRANSIENT)) 
+             continue;
+          }
+
+        // get value
+        value = xmlTextReaderConstValue(reader);
+        
+        if (POS_PARAM == p) 
+          {
+             switch (value[0]) 
                {
-                  fprintf(stderr, "couldn't bind param %d - %s\n", p, value);
-                  goto node_error;
+                case 'n': value = (xmlChar*) "N"; break; // noun
+                case 'v': value = (xmlChar*) "V"; break; // verb
+                case 't': value = (xmlChar*) "T"; break; // participle
+                case 'a': value = (xmlChar*) "A"; break; // adjective
+                case 'd': value = (xmlChar*) "D"; break; // adverb
+                case 'l': value = (xmlChar*) "L"; break; // article
+                case 'g': value = (xmlChar*) "G"; break; // particle
+                case 'c': value = (xmlChar*) "C"; break; // conjunction
+                case 'r': value = (xmlChar*) "R"; break; // preposition
+                case 'p': value = (xmlChar*) "P"; break; // pronoun
+                case 'm': value = (xmlChar*) "M"; break; // numeral
+                case 'i': value = (xmlChar*) "I"; break; // interjection
+                case 'e': value = (xmlChar*) "E"; break; // exclamation
+                case 'u': value = (xmlChar*) "U"; break; // punctuation
+                default: value = (xmlChar*) ""; break;
                }
-             
-             // remember this binding
-             ++ a;
           }
         
+        // bind param
+        if (SQLITE_OK != sqlite3_bind_text(stmt, p, (char *) value, -1, SQLITE_TRANSIENT)) 
+          {
+             fprintf(stderr, "couldn't bind param %d - %s\n", p, value);
+             goto node_error;
+          }
+        
+        // remember this binding
+        ++ a;
         // next attribute
-        j = xmlTextReaderMoveToAttributeNo(reader, ++ i);
+        //j = xmlTextReaderMoveToAttributeNo(reader, ++ i);
      }
    
    // there were attributes, so back to parent element node
@@ -160,20 +180,49 @@ int textline(char *line, sqlite3_stmt *stmt) /*{{{*/
           }
 
         // have param to bind
-        if (0 != p) 
+        if (0 == p) 
           {
-             // bind param
-             if (SQLITE_OK != sqlite3_bind_text(stmt, p, value, -1, SQLITE_TRANSIENT))
-               {
-                  fprintf(stderr, "couldn't bind param %d - %s\n", p, value);
-                  goto line_error;
-               }
-             
-             // remember this binding
-             ++ a;
+             goto next_token;
           }
         
+        if (POS_PARAM == p) 
+          {
+             switch (value[0]) 
+               {
+                case 'N': value = (char*) "N"; break; // noun
+                case 'V': value = (char*) "V"; break; // verb
+                case 'A': value = (char*) "A"; break; // adjective
+                case 'D': value = (char*) "D"; break; // adverb
+                case 'X': value = (char*) "G"; break; // particle
+                case 'P': value = (char*) "R"; break; // preposition
+                case 'C': value = (char*) "C"; break; // conjunction
+                case 'I': value = (char*) "I"; break; // interjection
+                case 'R':
+                  if ('A' == value[1]) value = (char*) "L"; // article
+                  else value = (char*) "P"; // pronoun
+                  break;
+                //case 'l': value = (char*) "L"; break; // article
+                //case 'p': value = (char*) "P"; break; // pronoun
+                //case 't': value = (char*) "T"; break; // participle
+                //case 'm': value = (char*) "M"; break; // numeral
+                //case 'e': value = (char*) "E"; break; // exclamation
+                //case 'u': value = (char*) "U"; break; // punctuation
+                default: value = (char*) ""; break;
+               }
+          }
+        
+        // bind param
+        if (SQLITE_OK != sqlite3_bind_text(stmt, p, value, -1, SQLITE_TRANSIENT))
+          {
+             fprintf(stderr, "couldn't bind param %d - %s\n", p, value);
+             goto line_error;
+          }
+        
+        // remember this binding
+        ++ a;
+        
         // go to next token
+next_token:
         value = strtok(NULL, delims);
         ++ s;
      }

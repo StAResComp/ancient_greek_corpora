@@ -3,8 +3,6 @@
 use strict;
 use XML::LibXML;
 use XML::LibXML::XPathContext;
-# use utf8;
-use charnames ':full';
 
 # fields to read from STDIN
 my @people = ();
@@ -322,6 +320,7 @@ sub bodyText { # =pod
     my $text = shift;
     
     # remove spaces between —s and multiple —s
+    $text =~ s/-/\x{e2}\x{80}\x{94}/g;
     $text =~ s/\x{e2}\x{80}\x{94} /\x{e2}\x{80}\x{94}/g;
     $text =~ s/(\x{e2}\x{80}\x{94})+/\x{e2}\x{80}\x{94}/g;
     
@@ -333,10 +332,12 @@ sub bodyText { # =pod
     my $first = 1;
     my $inAdd = 0;
     my ($w, $w1, $w2, $w3) = ("", "", "", "");
+    my $haveW = 0;
     
     my $el = $dom->createElementNS($teiNS, $elName);
     
-    foreach $w (split /\s+/, $text) {
+    # split text on spaces and zero-width gaps before some punctuation
+    foreach $w (split /\s+|(?=[\.\,\(\)\?])|(?<=[\.\,\(\)\?])/, $text) {
         # first word is line number
         if ($first && $w =~ /^([0-9]+)$/) {
             $el->setAttributeNode($dom->createAttribute("n", $1));
@@ -349,11 +350,19 @@ sub bodyText { # =pod
             $el = $dom->createElementNS($teiNS, $elName);
             next;
         }
+        # word contains /
+        # finish current line and start new one, removing /s from word
+        elsif ($w =~ /\//) {
+            push @els, $el;
+            $el = $dom->createElementNS($teiNS, $elName);
+            $w =~ s/\///g;
+        }
         
         # not on first word anymore
         $first = 0;
         
         $wEl = $dom->createElementNS($teiNS, "w");
+        $haveW = 0;
 
         # split w into before, [/] and after
         while (($w1, $w2, $w3) = $w =~ /^([^\[\]]*)([\[\]])(.*)$/) {
@@ -361,27 +370,25 @@ sub bodyText { # =pod
             if ($w1 ne "") {
                 $wEl = additions($w1, $wEl, $inAdd);
             }
-            
-            # opening [, so create addition
-            if ($w2 eq "[") {
-                $inAdd = 1;
-            }
-            # closing ], so add addition to word and undef addition
-            elsif ($w2 eq "]") {
-                $inAdd = 0;
-            }
+
+            # opening [, so in addition
+            $inAdd = ($w2 eq '[');
             
             # process rest of word after [/]
             $w = $w3;
+            $haveW = 1;
         }
         
         # have something left
         if ($w ne "") {
+            $haveW = 1;
             $wEl = additions($w, $wEl, $inAdd);
         }
       
         # add word to parent element
-        $el->appendChild($wEl);
+        if (1 == $haveW) {
+            $el->appendChild($wEl);
+        }
     }
     
     push @els, $el;
@@ -395,8 +402,7 @@ sub additions { # =pod
     my $wEl = shift;
     my $inAdd = shift;
     
-    my $addEl = undef;
-    my $thisEl = undef;
+    my $addEl = undef, my $thisEl = undef, my $unclearEl = undef;
 
     # in an addition, so need an add element
     # and set thisEl to add element
@@ -418,7 +424,9 @@ sub additions { # =pod
         
         # have —
         if ($t2 eq "—") {
-            $thisEl->appendChild($dom->createElementNS($teiNS, "unclear"));
+            $unclearEl = $dom->createElementNS($teiNS, "unclear");
+            $unclearEl->appendTextNode("—");
+            $thisEl->appendChild($unclearEl);
         }
         
         # continue with everything after —
