@@ -68,6 +68,9 @@ CONVERT_TO_TXT = libreoffice --convert-to "txt:Text (encoded):UTF8" --outdir $(D
 CONVERT_TO_TEI = ./text2xml.pl
 CONVERT_TO_VRT = ./xml2cwb.pl
 
+# get corpus ID
+CORPUS_ID = $(shell echo "INSERT OR IGNORE INTO corpora (corpus_id, corpus_name) VALUES (NULL, '$(CWB_PROJECT)'); SELECT corpus_id FROM corpora WHERE corpus_name = '$(CWB_PROJECT)';" | sqlite3 $(DB))
+
 .PHONY: clean
 
 all : $(READER) $(DB) ingest_xml.touch ingest_txt.touch convert_docx.touch $(INGEST) ingest_tei.touch $(COLLOC)
@@ -125,7 +128,7 @@ encode : $(CORPUS_XML)
 
 # ingest words and metadata from TEI into database
 ingest_tei.touch : $(TEI_DOCS)
-	$(INGEST) $(DB) $^
+	$(INGEST) $(DB) $(CORPUS_ID) $^
 	touch $@
 
 clean:
